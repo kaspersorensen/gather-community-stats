@@ -8,27 +8,67 @@ from requests import Response
 class Arguments:
     subdomain: str = ""
     username: str = ""
-    password: str = ""
+    token: str = ""
+
+class UserStats:
+    def __init__(self):
+        self.stats_by_user = dict()
+    def observe_post_by_user(self, user_id):
+        userstats = self.stats_by_user.get(user_id)
+        if not userstats:
+            userstats = dict()
+            self.stats_by_user[user_id] = userstats
+        userstats['posts'] = 1 + (userstats.get('posts') or 0)
+    def observe_comment_by_user(self, user_id):
+        userstats = self.stats_by_user.get(user_id)
+        if not userstats:
+            userstats = dict()
+            self.stats_by_user[user_id] = userstats
+        userstats['comments'] = 1 + (userstats.get('comments') or 0)
+    def to_csv(self):
+        yield 'user_id,num_posts,num_comments'
+        for user_id in self.stats_by_user:
+            userstats = self.stats_by_user[user_id]
+            num_posts = userstats.get('posts') or 0
+            num_comments = userstats.get('comments') or 0
+            yield f"{user_id},{num_posts},{num_comments}"
 
 def request_get(args: Arguments, path: str) -> Response:
-    return requests.get(args.subdomain + path, auth=HTTPBasicAuth(args.username, args.password))
+    return requests.get(args.subdomain + path, auth=HTTPBasicAuth(args.username + "/token", args.token))
 
 def get_topics(args: Arguments):
     resp = request_get(args, '/api/v2/community/topics.json')
-    print(resp.text)
-    return []
+    return resp.json()['topics']
+
+def get_posts(args: Arguments, topic_id):
+    resp = request_get(args, f'/api/v2/community/topics/{topic_id}/posts.json')
+    return resp.json()['posts']
+
+def get_comments(args: Arguments, post_id):
+    resp = request_get(args, f'/api/v2/community/posts/{post_id}/comments.json')
+    return resp.json()['comments']
 
 def run_main(args: Arguments):
+    stats = UserStats()
     topics = get_topics(args)
     for topic in topics:
-        print("--- TOPIC: " + topic.name + " ---")
+        print("Scanning topic: " + topic['name'] + " ---")
+        posts = get_posts(args, topic['id'])
+        for post in posts:
+            stats.observe_post_by_user(post['author_id'])
+            comments = get_comments(args, post['id'])
+            for comment in comments:
+                stats.observe_comment_by_user(comment['author_id'])
+    print("--- RESULTS ---")
+    for line in stats.to_csv():
+        print(line)
 
 def main(argv):
-    HELP_LINE = 'main.py -d <subdomain> -u <username> -p <password>'
+    HELP_LINE = 'main.py -d <subdomain> -u <username> -t <token>'
     arguments = Arguments()
     opts = []
     try:
-        opts, args = getopt.getopt(argv,"hd:u:p:",["subdomain=", "username=","password="])
+        opts, args = getopt.getopt(argv,"hd:u:t:",["subdomain=","username=","token="])
     except getopt.GetoptError:
         print(HELP_LINE)
         sys.exit(2)
@@ -47,6 +87,8 @@ def main(argv):
             arguments.username = arg
         elif opt in ("-p", "--password"):
             arguments.password = arg
+        elif opt in ("-t", "--token"):
+            arguments.token = arg
     run_main(arguments)
 
 if __name__ == "__main__":
