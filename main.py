@@ -34,15 +34,31 @@ class UserStats:
             yield f"{user_id},{num_posts},{num_comments}"
 
 def request_get(args: Arguments, path: str) -> Response:
-    return requests.get(args.subdomain + path, auth=HTTPBasicAuth(args.username + "/token", args.token))
+    if path.startswith('http'):
+        url = path
+    else:
+        url = args.subdomain + path
+    print(f'GET {url}')
+    return requests.get(url, auth=HTTPBasicAuth(args.username + "/token", args.token))
 
 def get_topics(args: Arguments):
     resp = request_get(args, '/api/v2/community/topics.json')
     return resp.json()['topics']
 
-def get_posts(args: Arguments, topic_id):
-    resp = request_get(args, f'/api/v2/community/topics/{topic_id}/posts.json')
-    return resp.json()['posts']
+def get_posts(args: Arguments, topic_id = None):
+    if topic_id:
+        resp = request_get(args, f'/api/v2/community/topics/{topic_id}/posts.json')
+    else:
+        resp = request_get(args, f'/api/v2/community/posts.json')
+    keep_running = True
+    while keep_running:
+        body = resp.json()
+        for post in body['posts']:
+            yield post
+        if body['next_page']:
+            resp = request_get(args, body['next_page'])
+        else:
+            keep_running = False
 
 def get_comments(args: Arguments, post_id):
     resp = request_get(args, f'/api/v2/community/posts/{post_id}/comments.json')
@@ -50,15 +66,13 @@ def get_comments(args: Arguments, post_id):
 
 def run_main(args: Arguments):
     stats = UserStats()
-    topics = get_topics(args)
-    for topic in topics:
-        print("Scanning topic: " + topic['name'] + " ---")
-        posts = get_posts(args, topic['id'])
-        for post in posts:
-            stats.observe_post_by_user(post['author_id'])
-            comments = get_comments(args, post['id'])
-            for comment in comments:
-                stats.observe_comment_by_user(comment['author_id'])
+    topic_id = None
+    posts = get_posts(args, topic_id)
+    for post in posts:
+        stats.observe_post_by_user(post['author_id'])
+        comments = get_comments(args, post['id'])
+        for comment in comments:
+            stats.observe_comment_by_user(comment['author_id'])
     print("--- RESULTS ---")
     for line in stats.to_csv():
         print(line)
