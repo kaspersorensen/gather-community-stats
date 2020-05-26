@@ -62,7 +62,15 @@ def get_posts(args: Arguments, topic_id = None):
 
 def get_comments(args: Arguments, post_id):
     resp = request_get(args, f'/api/v2/community/posts/{post_id}/comments.json')
-    return resp.json()['comments']
+    keep_running = True
+    while keep_running:
+        body = resp.json()
+        for comment in body['comments']:
+            yield comment
+        if body['next_page']:
+            resp = request_get(args, body['next_page'])
+        else:
+            keep_running = False
 
 def run_main(args: Arguments):
     stats = UserStats()
