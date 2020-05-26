@@ -11,7 +11,7 @@ This tool requires Python 3.x and the [requests](https://pypi.org/project/reques
 This is a command line tool, and it simply prints the CSV out. Invoke it like this:
 
 ```
-python main.py -d <subdomain> -u <username> -t <token>
+python main.py -d <subdomain> -u <username> -t <token> -o <output_file>
 ```
 
 Where:
@@ -19,3 +19,4 @@ Where:
  * `≤subdomain>` is your zendesk subdomain.
  * `<username>` is your username
  * `<token>` is your API token
+ * `<output_file>` is the desired output filename

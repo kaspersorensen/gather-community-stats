@@ -9,6 +9,7 @@ class Arguments:
     subdomain: str = ""
     username: str = ""
     token: str = ""
+    outputfile: str = ""
 
 class UserStats:
     def __init__(self):
@@ -81,21 +82,29 @@ def run_main(args: Arguments):
         comments = get_comments(args, post['id'])
         for comment in comments:
             stats.observe_comment_by_user(comment['author_id'])
-    print("--- RESULTS ---")
-    for line in stats.to_csv():
-        print(line)
+    if args.outputfile:
+        with open(args.outputfile, "w") as f:
+            for line in stats.to_csv():
+                f.write(line)
+                f.write('\n')
+        print(f"Results saved to {args.outputfile}")
+    else:
+        print("--- RESULTS ---")
+        for line in stats.to_csv():
+            print(line)
 
 def main(argv):
     HELP_LINE = 'main.py -d <subdomain> -u <username> -t <token>'
     arguments = Arguments()
     opts = []
     try:
-        opts, args = getopt.getopt(argv,"hd:u:t:",["subdomain=","username=","token="])
-    except getopt.GetoptError:
+        opts, args = getopt.getopt(argv,"ho:d:u:t:",["output=","subdomain=","username=","token="])
+    except getopt.GetoptError as e:
+        print(e)
         print(HELP_LINE)
         sys.exit(2)
     for opt, arg in opts:
-        if opt == '-h':
+        if opt in ("-h", "--help", "--usage", "-?"):
             print(HELP_LINE)
             sys.exit()
         elif opt in ("-d", "--subdomain"):
@@ -111,6 +120,8 @@ def main(argv):
             arguments.password = arg
         elif opt in ("-t", "--token"):
             arguments.token = arg
+        elif opt in ("-o", "--output"):
+            arguments.outputfile = arg
     run_main(arguments)
 
 if __name__ == "__main__":

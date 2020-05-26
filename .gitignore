@@ -6,3 +6,4 @@ dist/
 .eggs/
 *.egg-info/
 *.dist-info/
+out.csv
