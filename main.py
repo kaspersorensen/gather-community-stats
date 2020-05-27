@@ -1,15 +1,21 @@
-import sys, getopt
+import sys, getopt, datetime
+from datetime import datetime, timedelta
+import pytz
 from dataclasses import dataclass
 import requests
 from requests.auth import HTTPBasicAuth
 from requests import Response
 
+utc = pytz.UTC
+
 @dataclass(init=False)
 class Arguments:
-    subdomain: str = ""
-    username: str = ""
-    token: str = ""
-    outputfile: str = ""
+    subdomain: str = None
+    username: str = None
+    token: str = None
+    outputfile: str = None
+    filter_from: datetime = None
+    filter_to: datetime = None
 
 class UserStats:
     def __init__(self):
@@ -46,20 +52,46 @@ def get_topics(args: Arguments):
     resp = request_get(args, '/api/v2/community/topics.json')
     return resp.json()['topics']
 
+def included_in_date_range(args: Arguments, datestr):
+    if not args.filter_from and not args.filter_to:
+        return True
+    dt = datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%S%z")
+    if args.filter_from and args.filter_from > dt:
+        return False
+    if args.filter_to and args.filter_to < dt:
+        return False
+    return True
+
+def older_than_date_range(args: Arguments, datestr):
+    if not args.filter_from:
+        return False
+    dt = datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%S%z")
+    if args.filter_from and args.filter_from > dt:
+        return True
+    return False
+
 def get_posts(args: Arguments, topic_id = None):
     if topic_id:
-        resp = request_get(args, f'/api/v2/community/topics/{topic_id}/posts.json')
+        resp = request_get(args, f'/api/v2/community/topics/{topic_id}/posts.json?sort_by=recent_activity')
     else:
-        resp = request_get(args, f'/api/v2/community/posts.json')
+        resp = request_get(args, f'/api/v2/community/posts.json?sort_by=recent_activity')
     keep_running = True
     while keep_running:
         body = resp.json()
         for post in body['posts']:
-            yield post
-        if body['next_page']:
-            resp = request_get(args, body['next_page'])
-        else:
-            keep_running = False
+            if included_in_date_range(args, post['created_at']):
+                yield post
+            elif included_in_date_range(args, post['updated_at']):
+                # still relevant to yield this because comments has to be observed
+                yield post
+            elif older_than_date_range(args, post['created_at']):
+                # no reason to read any further
+                keep_running = False
+        if keep_running:
+            if body['next_page']:
+                resp = request_get(args, body['next_page'])
+            else:
+                keep_running = False
 
 def get_comments(args: Arguments, post_id):
     resp = request_get(args, f'/api/v2/community/posts/{post_id}/comments.json')
@@ -67,18 +99,24 @@ def get_comments(args: Arguments, post_id):
     while keep_running:
         body = resp.json()
         for comment in body['comments']:
-            yield comment
-        if body['next_page']:
-            resp = request_get(args, body['next_page'])
-        else:
-            keep_running = False
+            if included_in_date_range(args, comment['created_at']):
+                yield comment
+            elif older_than_date_range(args, comment['created_at']):
+                # no reason to read any further
+                keep_running = False
+        if keep_running:
+            if body['next_page']:
+                resp = request_get(args, body['next_page'])
+            else:
+                keep_running = False
 
 def run_main(args: Arguments):
     stats = UserStats()
     topic_id = None
     posts = get_posts(args, topic_id)
     for post in posts:
-        stats.observe_post_by_user(post['author_id'])
+        if included_in_date_range(args, post['created_at']):
+            stats.observe_post_by_user(post['author_id'])
         comments = get_comments(args, post['id'])
         for comment in comments:
             stats.observe_comment_by_user(comment['author_id'])
@@ -94,11 +132,11 @@ def run_main(args: Arguments):
             print(line)
 
 def main(argv):
-    HELP_LINE = 'main.py -d <subdomain> -u <username> -t <token>'
+    HELP_LINE = 'main.py -d <subdomain> -u <username> -t <token> --from=<from> --to=<to>'
     arguments = Arguments()
     opts = []
     try:
-        opts, args = getopt.getopt(argv,"ho:d:u:t:",["output=","subdomain=","username=","token="])
+        opts, args = getopt.getopt(argv,"ho:d:u:t:",["output=","subdomain=","username=","token=","from=","to="])
     except getopt.GetoptError as e:
         print(e)
         print(HELP_LINE)
@@ -122,8 +160,14 @@ def main(argv):
             arguments.token = arg
         elif opt in ("-o", "--output"):
             arguments.outputfile = arg
+        elif opt in ("--from"):
+            dt = datetime.strptime(arg, "%Y-%m-%d")
+            arguments.filter_from = utc.localize(dt=dt)
+        elif opt in ("--to"):
+            dt = datetime.strptime(arg, "%Y-%m-%d")
+            dt = dt + timedelta(days=1, seconds=-1) # add one day minus one second to make "to" inclusive
+            arguments.filter_to = utc.localize(dt=dt)
     run_main(arguments)
 
 if __name__ == "__main__":
    main(sys.argv[1:])
-
