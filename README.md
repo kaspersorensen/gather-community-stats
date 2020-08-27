@@ -16,7 +16,7 @@ python main.py -d <subdomain> -u <username> -t <token> -o <output_file> --from=<
 
 Where:
 
- * `≤subdomain>` is your zendesk subdomain.
+ * `<subdomain>` is your zendesk subdomain.
  * `<username>` is your username.
  * `<token>` is your API token.
  * `<output_file>` is the desired output filename.
