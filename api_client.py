@@ -8,9 +8,23 @@ class ApiClient:
         self.subdomain = subdomain
         self.username = username
         self.token = token
+    def get_user(self, user_id):
+        resp = self.__http_get(f'/api/v2/users/{user_id}.json')
+        return resp.json()['user']
     def get_topics(self):
         resp = self.__http_get('/api/v2/community/topics.json')
         return resp.json()['topics']
+    def get_badges(self):
+        resp = self.__http_get('/api/v2/gather/badges')
+        return resp.json()['badges']
+    def create_badge_assignment(self, user_id, badge_id):
+        resp = self.__http_post('/api/v2/gather/badge_assignments', {
+            "badge_assignment": {
+                "badge_id": badge_id,
+                "user_id": user_id
+            }
+        })
+        return resp.json()
     def get_posts(self, topic_id = None, filter_from: str = None, filter_to: str = None):
         if topic_id:
             resp = self.__http_get(f'/api/v2/community/topics/{topic_id}/posts.json?sort_by=recent_activity')
@@ -57,4 +71,9 @@ class ApiClient:
             url = self.subdomain + path
         print(f'GET {url}')
         return requests.get(url, auth=HTTPBasicAuth(self.username + "/token", self.token))
-    
+    def __http_post(self, path: str, json_body: dict) -> Response:
+        if path.startswith('http'):
+            url = path
+        else:
+            url = self.subdomain + path
+        return requests.post(url, json=json_body, auth=HTTPBasicAuth(self.username + "/token", self.token))
