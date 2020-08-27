@@ -2,9 +2,8 @@ import sys, getopt, datetime
 from datetime import datetime, timedelta
 import pytz
 from dataclasses import dataclass
-import requests
-from requests.auth import HTTPBasicAuth
-from requests import Response
+from api_client import ApiClient
+import api_util
 
 utc = pytz.UTC
 
@@ -40,84 +39,15 @@ class UserStats:
             num_comments = userstats.get('comments') or 0
             yield f"{user_id},{num_posts},{num_comments}"
 
-def request_get(args: Arguments, path: str) -> Response:
-    if path.startswith('http'):
-        url = path
-    else:
-        url = args.subdomain + path
-    print(f'GET {url}')
-    return requests.get(url, auth=HTTPBasicAuth(args.username + "/token", args.token))
-
-def get_topics(args: Arguments):
-    resp = request_get(args, '/api/v2/community/topics.json')
-    return resp.json()['topics']
-
-def included_in_date_range(args: Arguments, datestr):
-    if not args.filter_from and not args.filter_to:
-        return True
-    dt = datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%S%z")
-    if args.filter_from and args.filter_from > dt:
-        return False
-    if args.filter_to and args.filter_to < dt:
-        return False
-    return True
-
-def older_than_date_range(args: Arguments, datestr):
-    if not args.filter_from:
-        return False
-    dt = datetime.strptime(datestr, "%Y-%m-%dT%H:%M:%S%z")
-    if args.filter_from and args.filter_from > dt:
-        return True
-    return False
-
-def get_posts(args: Arguments, topic_id = None):
-    if topic_id:
-        resp = request_get(args, f'/api/v2/community/topics/{topic_id}/posts.json?sort_by=recent_activity')
-    else:
-        resp = request_get(args, f'/api/v2/community/posts.json?sort_by=recent_activity')
-    keep_running = True
-    while keep_running:
-        body = resp.json()
-        for post in body['posts']:
-            if included_in_date_range(args, post['created_at']):
-                yield post
-            elif included_in_date_range(args, post['updated_at']):
-                # still relevant to yield this because comments has to be observed
-                yield post
-            elif older_than_date_range(args, post['created_at']):
-                # no reason to read any further
-                keep_running = False
-        if keep_running:
-            if body['next_page']:
-                resp = request_get(args, body['next_page'])
-            else:
-                keep_running = False
-
-def get_comments(args: Arguments, post_id):
-    resp = request_get(args, f'/api/v2/community/posts/{post_id}/comments.json')
-    keep_running = True
-    while keep_running:
-        body = resp.json()
-        for comment in body['comments']:
-            if included_in_date_range(args, comment['created_at']):
-                yield comment
-            elif older_than_date_range(args, comment['created_at']):
-                # no reason to read any further
-                keep_running = False
-        if keep_running:
-            if body['next_page']:
-                resp = request_get(args, body['next_page'])
-            else:
-                keep_running = False
-
 def run_main(args: Arguments):
+    api = ApiClient(args.subdomain, args.username, args.token)
     stats = UserStats()
     topic_id = None
-    posts = get_posts(args, topic_id)
+    posts = api.get_posts(topic_id, filter_from=args.filter_from, filter_to=args.filter_to)
     for post in posts:
-        if included_in_date_range(args, post['created_at']):
+        if api_util.included_in_date_range(post['created_at'], filter_from=args.filter_from, filter_to=args.filter_to):
             stats.observe_post_by_user(post['author_id'])
-        comments = get_comments(args, post['id'])
+        comments = api.get_comments(post['id'], filter_from=args.filter_from, filter_to=args.filter_to)
         for comment in comments:
             stats.observe_comment_by_user(comment['author_id'])
     if args.outputfile:
